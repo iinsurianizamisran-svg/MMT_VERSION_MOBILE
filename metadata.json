@@ -1,0 +1,6 @@
+{
+  "name": "e-Metadon",
+  "description": "Sistem Pengurusan Pesakit Terapi Gantian Metadon (DOT & DOT/DBB), rekod dispensi, pemantauan dos harian, amaran kepatuhan automatik, analitik prestasi doktor dan temujanji automatik.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
