@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.AlertSeverity
 import com.example.data.model.DispensationRecord
 import com.example.data.model.DispensationStatus
+import com.example.data.model.DispensingAlertStatus
+import com.example.data.model.DoctorSchedulingConfig
 import com.example.data.model.Patient
 import com.example.data.model.PatientStatus
 import com.example.data.model.RegimenType
@@ -90,5 +92,35 @@ class ExampleRobolectricTest {
         }
 
         assertTrue(consecutiveMissed >= 3)
+    }
+
+    @Test
+    fun `doctor scheduling parameters can be customized for treatment phases`() {
+        val customConfig = DoctorSchedulingConfig(
+            inductionIntervalDays = 5,
+            stabilizationIntervalDays = 10,
+            maintenanceIntervalDays = 45,
+            udsIntervalDays = 21,
+            dbbAuditIntervalDays = 90,
+            highRiskIntervalDays = 2
+        )
+
+        assertEquals(5, customConfig.inductionIntervalDays)
+        assertEquals(10, customConfig.stabilizationIntervalDays)
+        assertEquals(45, customConfig.maintenanceIntervalDays)
+        assertEquals(21, customConfig.udsIntervalDays)
+        assertEquals(90, customConfig.dbbAuditIntervalDays)
+        assertEquals(2, customConfig.highRiskIntervalDays)
+    }
+
+    @Test
+    fun `dispensing alert status classifies correctly`() {
+        val criticalStatus = DispensingAlertStatus.CRITICAL_TOLERANCE_LOSS
+        val onTimeStatus = DispensingAlertStatus.ON_TIME
+        val lateWarningStatus = DispensingAlertStatus.LATE_WARNING
+
+        assertEquals("Kritikal: 3+ Hari Missed (Hilang Toleransi)", criticalStatus.label)
+        assertEquals("Tepat Masa", onTimeStatus.label)
+        assertEquals("Amaran Lewat (Hampir Tamat Sesi)", lateWarningStatus.label)
     }
 }

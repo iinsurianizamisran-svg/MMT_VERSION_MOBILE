@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidPatient(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.methadoneRegNo is string && data.methadoneRegNo.size() > 0 &&
+             data.regimenType in ['DOT', 'DOT_DBB'] &&
+             data.currentDoseMg is number && data.currentDoseMg >= 0 &&
+             (!('age' in data) || data.age is int) &&
+             (!('currentDoseMl' in data) || data.currentDoseMl is number) &&
+             (!('dbbDaysPerWeek' in data) || data.dbbDaysPerWeek is int) &&
+             (!('consecutiveMissedDays' in data) || data.consecutiveMissedDays is int) &&
+             (!('adherenceRate' in data) || data.adherenceRate is number);
+    }
+
+    function isValidDispensation(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.patientId is string && data.patientId.size() > 0 &&
+             data.status in ['DISPENSED_DOT', 'DISPENSED_DOT_DBB', 'MISSED', 'DEFERRED', 'SCHEDULED'] &&
+             data.date is string &&
+             (!('doseMg' in data) || data.doseMg is number) &&
+             (!('dbbBottlesGiven' in data) || data.dbbBottlesGiven is int);
+    }
+
+    function isValidAppointment(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.patientId is string && data.patientId.size() > 0 &&
+             data.scheduledDate is string &&
+             data.status in ['SCHEDULED', 'COMPLETED', 'MISSED', 'RESCHEDULED'] &&
+             (!('appointmentType' in data) || data.appointmentType in ['DOCTOR_REVIEW', 'UDS_SCREENING', 'COUNSELING', 'DOSE_TITRATION']);
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /patients/{patientId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidPatient(request.resource.data);
+        allow update: if isOwner(userId) && isValidPatient(request.resource.data) && request.resource.data.userId == resource.data.userId;
+        allow delete: if isOwner(userId);
+      }
+
+      match /dispensations/{dispensationId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidDispensation(request.resource.data);
+        allow update: if isOwner(userId) && isValidDispensation(request.resource.data) && request.resource.data.userId == resource.data.userId;
+        allow delete: if isOwner(userId);
+      }
+
+      match /appointments/{appointmentId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAppointment(request.resource.data);
+        allow update: if isOwner(userId) && isValidAppointment(request.resource.data) && request.resource.data.userId == resource.data.userId;
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

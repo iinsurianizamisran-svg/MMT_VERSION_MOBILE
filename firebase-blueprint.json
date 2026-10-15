@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "Patient": {
+      "title": "Patient",
+      "description": "Methadone therapy patient profile",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "icNumber": { "type": "string" },
+        "methadoneRegNo": { "type": "string" },
+        "age": { "type": "integer" },
+        "phone": { "type": "string" },
+        "nextOfKinName": { "type": "string" },
+        "nextOfKinPhone": { "type": "string" },
+        "regimenType": { "type": "string", "enum": ["DOT", "DOT_DBB"] },
+        "dbbDaysPerWeek": { "type": "integer" },
+        "currentDoseMg": { "type": "number" },
+        "currentDoseMl": { "type": "number" },
+        "treatmentPhase": { "type": "string" },
+        "therapyStartDate": { "type": "string" },
+        "lastDispensedDate": { "type": "string" },
+        "consecutiveMissedDays": { "type": "integer" },
+        "udsStatus": { "type": "string" },
+        "udsLastTestedDate": { "type": "string" },
+        "adherenceRate": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "methadoneRegNo", "regimenType", "currentDoseMg"]
+    },
+    "DispensationRecord": {
+      "title": "DispensationRecord",
+      "description": "Daily methadone dispensing transaction and compliance record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "methadoneRegNo": { "type": "string" },
+        "regimenType": { "type": "string" },
+        "doseMg": { "type": "number" },
+        "doseMl": { "type": "number" },
+        "dbbBottlesGiven": { "type": "integer" },
+        "status": { "type": "string", "enum": ["DISPENSED_DOT", "DISPENSED_DOT_DBB", "MISSED", "DEFERRED", "SCHEDULED"] },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "dispensedBy": { "type": "string" },
+        "notes": { "type": "string" },
+        "isAlertTriggered": { "type": "boolean" },
+        "alertMessage": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "patientId", "status", "date"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Doctor review, clinical assessment, or UDS screening appointment",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "methadoneRegNo": { "type": "string" },
+        "appointmentType": { "type": "string", "enum": ["DOCTOR_REVIEW", "UDS_SCREENING", "COUNSELING", "DOSE_TITRATION"] },
+        "scheduledDate": { "type": "string" },
+        "scheduledTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["SCHEDULED", "COMPLETED", "MISSED", "RESCHEDULED"] },
+        "isAutoScheduled": { "type": "boolean" },
+        "clinicalNotes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "patientId", "scheduledDate", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/patients/{patientId}": {
+      "schema": { "$ref": "#/entities/Patient" },
+      "description": "Per-user patient records"
+    },
+    "/users/{userId}/dispensations/{dispensationId}": {
+      "schema": { "$ref": "#/entities/DispensationRecord" },
+      "description": "Per-user dispensation logs"
+    },
+    "/users/{userId}/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Per-user scheduled follow-ups"
+    }
+  }
+}

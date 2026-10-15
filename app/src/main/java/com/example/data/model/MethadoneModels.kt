@@ -115,3 +115,92 @@ data class AdherenceStats(
     val highRiskPatientsCount: Int,
     val dailyTrend: List<Pair<String, Float>> = emptyList() // Date to % Adherence
 )
+
+// --- Doctor Follow-Up Frequency Parameters & Auto-Scheduling Engine ---
+
+data class DoctorSchedulingConfig(
+    val inductionIntervalDays: Int = 7,       // Fasa Induksi: Semakan setiap 7 hari (1-14 hari awal)
+    val stabilizationIntervalDays: Int = 14,  // Fasa Penstabilan: Semakan setiap 14 hari
+    val maintenanceIntervalDays: Int = 30,    // Fasa Pengekalan: Semakan setiap 30 hari
+    val udsIntervalDays: Int = 30,            // Ujian UDS berkala: Setiap 30 hari
+    val dbbAuditIntervalDays: Int = 60,       // Audit kelayakan DBB: Setiap 60 hari
+    val highRiskIntervalDays: Int = 3,        // Pesakit berisiko tinggi (missed / UDS positif): Setiap 3 hari
+    val autoSuggestEnabled: Boolean = true
+)
+
+data class SuggestedAppointment(
+    val id: String,
+    val patientId: String,
+    val patientName: String,
+    val regNumber: String,
+    val appointmentType: AppointmentType,
+    val suggestedDate: String, // YYYY-MM-DD
+    val suggestedTime: String = "09:30 AM",
+    val rationale: String,
+    val priority: AlertSeverity,
+    val isAlreadyScheduled: Boolean = false
+)
+
+// --- Comprehensive Doctor Dashboard KPIs ---
+
+data class DispensingTrendPoint(
+    val label: String,
+    val dotMg: Float,
+    val dbbMg: Float,
+    val totalMg: Float = dotMg + dbbMg
+)
+
+data class DoctorDashboardAnalytics(
+    // 1. Patient Adherence Rates
+    val overallAdherenceRate: Float,
+    val dotAdherenceRate: Float,
+    val dotDbbAdherenceRate: Float,
+    val adherenceTrend: List<Pair<String, Float>>,
+
+    // 2. Medication Dispensing Trends
+    val todayTotalVolumeMg: Double,
+    val todayDotDoseMg: Double,
+    val todayDbbDoseMg: Double,
+    val dispensingVolumeTrend: List<DispensingTrendPoint>,
+
+    // 3. Appointment No-Show Rates
+    val totalAppointments: Int,
+    val attendedAppointmentsCount: Int,
+    val noShowAppointmentsCount: Int,
+    val noShowRate: Float, // % no-show
+    val upcomingAppointmentsCount: Int,
+    val noShowTrend: List<Pair<String, Float>>,
+
+    // 4. Treatment Effectiveness Over Time
+    val retentionRate: Float, // % active >= 6 months
+    val cleanUdsRate: Float, // % negative UDS
+    val udsTrend: List<Pair<String, Float>>,
+    val stabilizedDoseRate: Float, // % with steady dose
+    val treatmentEffectivenessIndex: Float // 0..100 composite score
+)
+
+// --- Automated Medication Dispensing Alert System ---
+
+enum class DispensingAlertStatus(val label: String) {
+    ON_TIME("Tepat Masa"),
+    LATE_WARNING("Amaran Lewat (Hampir Tamat Sesi)"),
+    MISSED_FLAGGED("Missed Dose - Tidak Hadir"),
+    CRITICAL_TOLERANCE_LOSS("Kritikal: 3+ Hari Missed (Hilang Toleransi)")
+}
+
+data class StaffDispensingReminder(
+    val id: String,
+    val patientId: String,
+    val patientName: String,
+    val regNumber: String,
+    val doseMg: Double,
+    val doseMl: Double,
+    val regimen: RegimenType,
+    val status: DispensingAlertStatus,
+    val dueTimeWindow: String, // e.g. "07:30 - 11:30 AM"
+    val phone: String,
+    val emergencyContact: String,
+    val reminderNote: String,
+    val consecutiveMissedDays: Int = 0,
+    val actionTaken: Boolean = false
+)

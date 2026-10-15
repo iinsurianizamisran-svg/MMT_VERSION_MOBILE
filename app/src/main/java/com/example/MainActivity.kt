@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.DispensationStatus
 import com.example.data.model.Patient
 import com.example.ui.components.DispenseDialog
+import com.example.ui.components.DoctorSchedulingConfigDialog
 import com.example.ui.components.NewAppointmentDialog
 import com.example.ui.components.NewPatientDialog
 import com.example.ui.components.PatientDetailDialog
@@ -74,6 +75,21 @@ import com.example.ui.theme.ClinicalTealPrimary
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MethadoneViewModel
 
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.credentials.CredentialManager
+import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.auth.performSignOut
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
+
 class MainActivity : ComponentActivity() {
     private val viewModel: MethadoneViewModel by viewModels()
 
@@ -82,7 +98,70 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                MethadoneApp(viewModel = viewModel)
+                val context = LocalContext.current
+                val coroutineScope = rememberCoroutineScope()
+                val credentialManager = remember { CredentialManager.create(context) }
+                var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+
+                DisposableEffect(Unit) {
+                    val listener = FirebaseAuth.AuthStateListener { auth ->
+                        currentUser = auth.currentUser
+                        currentUser?.uid?.let { uid ->
+                            viewModel.initForUser(uid)
+                        }
+                    }
+                    Firebase.auth.addAuthStateListener(listener)
+                    onDispose {
+                        Firebase.auth.removeAuthStateListener(listener)
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    if (currentUser == null) {
+                        attemptAutoSignIn(
+                            context = context,
+                            credentialManager = credentialManager,
+                            onAuthSuccess = {
+                                currentUser = Firebase.auth.currentUser
+                                currentUser?.uid?.let { uid ->
+                                    viewModel.initForUser(uid)
+                                }
+                            },
+                            onUnauthenticated = {},
+                            scope = coroutineScope
+                        )
+                    } else {
+                        currentUser?.uid?.let { uid ->
+                            viewModel.initForUser(uid)
+                        }
+                    }
+                }
+
+                if (currentUser == null) {
+                    AuthScreen(
+                        onAuthSuccess = {
+                            currentUser = Firebase.auth.currentUser
+                            currentUser?.uid?.let { uid ->
+                                viewModel.initForUser(uid)
+                            }
+                        }
+                    )
+                } else {
+                    MethadoneApp(
+                        viewModel = viewModel,
+                        currentUser = currentUser,
+                        onSignOut = {
+                            performSignOut(
+                                context = context,
+                                credentialManager = credentialManager,
+                                onSignOutComplete = {
+                                    currentUser = null
+                                },
+                                scope = coroutineScope
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -90,7 +169,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MethadoneApp(viewModel: MethadoneViewModel) {
+fun MethadoneApp(
+    viewModel: MethadoneViewModel,
+    currentUser: FirebaseUser? = null,
+    onSignOut: () -> Unit = {}
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -168,6 +251,17 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                             }
                         }
                     }
+
+                    IconButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.testTag("btn_top_sign_out")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ExitToApp,
+                            contentDescription = "Log Keluar",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -211,10 +305,24 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                     selected = uiState.selectedTab == 1,
                     onClick = { viewModel.setSelectedTab(1) },
                     icon = {
-                        Icon(
-                            if (uiState.selectedTab == 1) Icons.Default.Medication else Icons.Outlined.Medication,
-                            contentDescription = "Dispensi"
-                        )
+                        val lateReminders = uiState.staffDispensingReminders.count {
+                            it.status == com.example.data.model.DispensingAlertStatus.LATE_WARNING ||
+                                    it.status == com.example.data.model.DispensingAlertStatus.CRITICAL_TOLERANCE_LOSS
+                        }
+                        BadgedBox(
+                            badge = {
+                                if (lateReminders > 0) {
+                                    Badge(containerColor = ClinicalCriticalRed) {
+                                        Text("$lateReminders")
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                if (uiState.selectedTab == 1) Icons.Default.Medication else Icons.Outlined.Medication,
+                                contentDescription = "Dispensi"
+                            )
+                        }
                     },
                     label = { Text("Dispensi", fontSize = 11.sp, fontWeight = if (uiState.selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
@@ -248,11 +356,12 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                     onClick = { viewModel.setSelectedTab(3) },
                     icon = {
                         val overdueCount = uiState.appointments.count { it.status == com.example.data.model.AppointmentStatus.TERTUNGGAK }
+                        val suggestionsCount = uiState.suggestedAppointments.count { !it.isAlreadyScheduled }
                         BadgedBox(
                             badge = {
-                                if (overdueCount > 0) {
-                                    Badge(containerColor = ClinicalCriticalRed) {
-                                        Text("$overdueCount")
+                                if (overdueCount > 0 || suggestionsCount > 0) {
+                                    Badge(containerColor = if (overdueCount > 0) ClinicalCriticalRed else ClinicalTealPrimary) {
+                                        Text("${overdueCount + suggestionsCount}")
                                     }
                                 }
                             }
@@ -284,8 +393,11 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                     state = uiState,
                     onViewPatient = { patient -> viewModel.selectPatientForDetail(patient) },
                     onAutoScheduleAll = { viewModel.autoScheduleAllPatients() },
+                    onOpenDoctorConfig = { viewModel.openDoctorConfigDialog() },
+                    onApplySuggestion = { suggestion -> viewModel.applySuggestedAppointment(suggestion) },
                     onNavigateToDispense = { viewModel.setSelectedTab(1) },
-                    onNavigateToAppointments = { viewModel.setSelectedTab(3) }
+                    onNavigateToAppointments = { viewModel.setSelectedTab(3) },
+                    onSelectAnalyticsTab = { idx -> viewModel.setActiveAnalyticsTab(idx) }
                 )
                 1 -> DispensationScreen(
                     state = uiState,
@@ -312,7 +424,8 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                             notes = "Pesakit tidak hadir ke klinik hari ini."
                         )
                     },
-                    onPatientClick = { patient -> viewModel.selectPatientForDetail(patient) }
+                    onPatientClick = { patient -> viewModel.selectPatientForDetail(patient) },
+                    onSendStaffReminder = { name, phone -> viewModel.sendStaffReminderNotice(name, phone) }
                 )
                 2 -> PatientsScreen(
                     state = uiState,
@@ -324,11 +437,23 @@ fun MethadoneApp(viewModel: MethadoneViewModel) {
                 3 -> AppointmentsScreen(
                     state = uiState,
                     onAutoScheduleAll = { viewModel.autoScheduleAllPatients() },
+                    onOpenDoctorConfig = { viewModel.openDoctorConfigDialog() },
+                    onApplySuggestion = { suggestion -> viewModel.applySuggestedAppointment(suggestion) },
+                    onApplyAllSuggestions = { viewModel.applyAllSuggestedAppointments() },
                     onAddNewAppointment = { viewModel.openNewAppointmentDialog() },
                     onCompleteAppointment = { apt -> viewModel.completeAppointment(apt) }
                 )
             }
         }
+    }
+
+    // Doctor Scheduling Configuration Dialog
+    if (uiState.isDoctorConfigDialogOpen) {
+        DoctorSchedulingConfigDialog(
+            currentConfig = uiState.doctorConfig,
+            onDismiss = { viewModel.closeDoctorConfigDialog() },
+            onSave = { newConfig -> viewModel.updateDoctorSchedulingConfig(newConfig) }
+        )
     }
 
     // New Patient Dialog

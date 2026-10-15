@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,9 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CrisisAlert
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -31,6 +33,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -45,8 +49,12 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.ClinicalAlert
 import com.example.data.model.Patient
 import com.example.data.model.RegimenType
+import com.example.data.model.SuggestedAppointment
 import com.example.ui.components.AdherenceTrendChart
 import com.example.ui.components.AlertBannerCard
+import com.example.ui.components.DispensingVolumeChart
+import com.example.ui.components.NoShowRatesCard
+import com.example.ui.components.TreatmentEffectivenessCard
 import com.example.ui.theme.ClinicalAmberTertiary
 import com.example.ui.theme.ClinicalCriticalRed
 import com.example.ui.theme.ClinicalSuccessGreen
@@ -60,10 +68,15 @@ fun DashboardScreen(
     state: MethadoneUiState,
     onViewPatient: (Patient) -> Unit,
     onAutoScheduleAll: () -> Unit,
+    onOpenDoctorConfig: () -> Unit,
+    onApplySuggestion: (SuggestedAppointment) -> Unit,
     onNavigateToDispense: () -> Unit,
     onNavigateToAppointments: () -> Unit,
+    onSelectAnalyticsTab: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val analytics = state.doctorAnalytics
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -85,14 +98,14 @@ fun DashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Analitik Prestasi Rawatan",
+                                text = "Dashboard Analitik Doktor",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
                             Text(
-                                text = "Sistem Pengurusan Terapi Gantian Metadon (KKM)",
+                                text = "Petunjuk Prestasi Utama (KPI) & Pemantauan Rawatan Metadon",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.85f)
                             )
@@ -120,23 +133,27 @@ fun DashboardScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = onNavigateToDispense,
+                            onClick = onOpenDoctorConfig,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.White,
                                 contentColor = ClinicalTealPrimary
                             ),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_dash_go_dispense")
+                                .weight(1.2f)
+                                .testTag("btn_dash_doctor_config")
                         ) {
-                            Text("Kaunter Dispensi", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Tetapan Parameter", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
                         }
 
                         OutlinedButton(
                             onClick = onAutoScheduleAll,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.8f))),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.8f))
+                            ),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
@@ -144,14 +161,14 @@ fun DashboardScreen(
                         ) {
                             Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Auto Temujanji", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text("Auto-Jadual", fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp)
                         }
                     }
                 }
             }
         }
 
-        // Summary Metric Grid Cards
+        // Summary Metric Grid Cards (Top 4 KPIs)
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -159,18 +176,18 @@ fun DashboardScreen(
             ) {
                 MetricCard(
                     title = "Kepatuhan Purata",
-                    value = "${state.stats.overallAdherenceRate.toInt()}%",
-                    subtitle = if (state.stats.overallAdherenceRate >= 85f) "Mencapai KPI (\u226585%)" else "Di bawah sasaran KKM",
+                    value = "${analytics.overallAdherenceRate.toInt()}%",
+                    subtitle = if (analytics.overallAdherenceRate >= 85f) "Mencapai KPI (\u226585%)" else "Di bawah KPI KKM",
                     icon = Icons.Default.TrendingUp,
-                    accentColor = if (state.stats.overallAdherenceRate >= 85f) ClinicalSuccessGreen else ClinicalAmberTertiary,
+                    accentColor = if (analytics.overallAdherenceRate >= 85f) ClinicalSuccessGreen else ClinicalAmberTertiary,
                     modifier = Modifier.weight(1f)
                 )
 
                 MetricCard(
-                    title = "Pesakit Aktif",
-                    value = "${state.stats.totalActivePatients}",
-                    subtitle = "${state.stats.dotCount} DOT | ${state.stats.dotDbbCount} DOT&DBB",
-                    icon = Icons.Default.Group,
+                    title = "Dispensi Hari Ini",
+                    value = "${analytics.todayTotalVolumeMg.toInt()} mg",
+                    subtitle = "DOT: ${analytics.todayDotDoseMg.toInt()}mg | DBB: ${analytics.todayDbbDoseMg.toInt()}mg",
+                    icon = Icons.Default.Medication,
                     accentColor = ClinicalTealPrimary,
                     modifier = Modifier.weight(1f)
                 )
@@ -183,100 +200,275 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 MetricCard(
-                    title = "Kehadiran Hari Ini",
-                    value = "${state.stats.todayPresentCount} Hadir",
-                    subtitle = "${state.stats.todayMissedCount} Missed | ${state.stats.todayPendingCount} Belum",
-                    icon = Icons.Default.Medication,
-                    accentColor = if (state.stats.todayMissedCount > 0) ClinicalCriticalRed else ClinicalSuccessGreen,
+                    title = "Kadar No-Show",
+                    value = "${String.format("%.1f", analytics.noShowRate)}%",
+                    subtitle = if (analytics.noShowRate <= 15f) "Terkawal (< 15%)" else "Perlu intervensi",
+                    icon = Icons.Default.EventBusy,
+                    accentColor = if (analytics.noShowRate <= 15f) ClinicalSuccessGreen else ClinicalCriticalRed,
                     modifier = Modifier.weight(1f)
                 )
 
                 MetricCard(
-                    title = "Pesakit Berisiko",
-                    value = "${state.stats.highRiskPatientsCount}",
-                    subtitle = if (state.stats.highRiskPatientsCount > 0) "Perlu tindakan segera" else "Semua dalam kawalan",
-                    icon = Icons.Default.CrisisAlert,
-                    accentColor = if (state.stats.highRiskPatientsCount > 0) ClinicalCriticalRed else ClinicalSuccessGreen,
+                    title = "Skor Keberkesanan",
+                    value = "${analytics.treatmentEffectivenessIndex.toInt()} / 100",
+                    subtitle = "UDS Bersih: ${analytics.cleanUdsRate.toInt()}%",
+                    icon = Icons.Default.Science,
+                    accentColor = ClinicalSuccessGreen,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // 7-Day Adherence Trend Chart
+        // 4 KPI Dimension Tab Navigation Bar
         item {
-            AdherenceTrendChart(dataPoints = state.stats.dailyTrend)
-        }
-
-        // Regimen Distribution & Dosage Breakdown Card
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Taburan Regimen & Profil Dos",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            Column {
+                Text(
+                    text = "Dimensi Analitik Doktor",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                ScrollableTabRow(
+                    selectedTabIndex = state.activeAnalyticsTab,
+                    containerColor = Color.Transparent,
+                    contentColor = ClinicalTealPrimary,
+                    edgePadding = 0.dp
+                ) {
+                    val tabs = listOf(
+                        "Kepatuhan Pesakit",
+                        "Trend Dispensi",
+                        "Kadar No-Show",
+                        "Keberkesanan Rawatan"
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val totalActive = state.stats.totalActivePatients.coerceAtLeast(1)
-                    val dotRatio = state.stats.dotCount.toFloat() / totalActive.toFloat()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "DOT Harian (${state.stats.dotCount} pesakit)",
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                    tabs.forEachIndexed { index, label ->
+                        Tab(
+                            selected = state.activeAnalyticsTab == index,
+                            onClick = { onSelectAnalyticsTab(index) },
+                            text = {
+                                Text(
+                                    text = label,
+                                    fontWeight = if (state.activeAnalyticsTab == index) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 12.sp
+                                )
+                            }
                         )
-                        Text(
-                            text = "DOT & DBB (${state.stats.dotDbbCount} pesakit)",
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = ClinicalTealPrimary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { dotRatio },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = MaterialTheme.colorScheme.secondary,
-                        trackColor = ClinicalTealPrimary
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Dosage range breakdown
-                    Text(
-                        text = "Taburan Dos Semasa:",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val activePatients = state.patients.filter { it.status == com.example.data.model.PatientStatus.AKTIF }
-                    val lowDose = activePatients.count { it.currentDoseMg < 50 }
-                    val midDose = activePatients.count { it.currentDoseMg in 50.0..80.0 }
-                    val highDose = activePatients.count { it.currentDoseMg > 80 }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        DosagePill(label = "<50 mg", count = lowDose, modifier = Modifier.weight(1f))
-                        DosagePill(label = "50-80 mg", count = midDose, modifier = Modifier.weight(1f))
-                        DosagePill(label = ">80 mg", count = highDose, modifier = Modifier.weight(1f))
                     }
                 }
             }
         }
 
-        // Automated Clinical Alerts Section
+        // Render Active Analytics Section
+        when (state.activeAnalyticsTab) {
+            0 -> {
+                // Tab 0: Adherence Dimension
+                item {
+                    AdherenceTrendChart(dataPoints = analytics.adherenceTrend)
+                }
+
+                item {
+                    // Regimen Adherence Breakdown Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Perbandingan Kepatuhan Mengikut Regimen",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Regimen DOT Sahaja: ${analytics.dotAdherenceRate.toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    text = "Regimen DOT & DBB: ${analytics.dotDbbAdherenceRate.toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = ClinicalTealPrimary
+                                    )
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LinearProgressIndicator(
+                                progress = { analytics.dotDbbAdherenceRate / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = ClinicalTealPrimary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            1 -> {
+                // Tab 1: Medication Dispensing Trends Dimension
+                item {
+                    DispensingVolumeChart(trendPoints = analytics.dispensingVolumeTrend)
+                }
+
+                item {
+                    // Today's Dispensing Breakdown Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Ringkasan Jumlah Dos Hari Ini",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(ClinicalTealContainer)
+                                        .padding(12.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "DOT Klinik",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ClinicalTealOnContainer
+                                        )
+                                        Text(
+                                            text = "${analytics.todayDotDoseMg.toInt()} mg",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = ClinicalTealOnContainer
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(ClinicalAmberTertiary.copy(alpha = 0.15f))
+                                        .padding(12.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "DBB Bawa Balik",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ClinicalAmberTertiary
+                                        )
+                                        Text(
+                                            text = "${analytics.todayDbbDoseMg.toInt()} mg",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = ClinicalAmberTertiary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            2 -> {
+                // Tab 2: Appointment No-Show Rates Dimension
+                item {
+                    NoShowRatesCard(analytics = analytics)
+                }
+            }
+
+            3 -> {
+                // Tab 3: Treatment Effectiveness Over Time Dimension
+                item {
+                    TreatmentEffectivenessCard(analytics = analytics)
+                }
+            }
+        }
+
+        // Automated Appointment Suggestions Section (Doctor Parameter Driven)
+        if (state.suggestedAppointments.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = ClinicalTealPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Cadangan Susulan Automatik (${state.suggestedAppointments.size})",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToAppointments,
+                        modifier = Modifier.testTag("btn_see_all_suggestions")
+                    ) {
+                        Text("Lihat Semua", fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // Show top 2 suggestions directly on dashboard
+            items(state.suggestedAppointments.take(2)) { suggestion ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = ClinicalTealContainer.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${suggestion.patientName} (${suggestion.regNumber})",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Cadangan: ${suggestion.suggestedDate} \u2022 ${suggestion.appointmentType.label}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = ClinicalTealPrimary
+                            )
+                            Text(
+                                text = suggestion.rationale,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            onClick = { onApplySuggestion(suggestion) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ClinicalTealPrimary),
+                            modifier = Modifier.testTag("btn_apply_sug_${suggestion.patientId}")
+                        ) {
+                            Text("Tetapkan", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Active Clinical Alerts Section
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -285,7 +477,7 @@ fun DashboardScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Sistem Amaran Kepatuhan",
+                        text = "Sistem Amaran Kepatuhan Klinikal",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -305,7 +497,7 @@ fun DashboardScreen(
 
                 if (state.alerts.isNotEmpty()) {
                     Text(
-                        text = "Perlu Tindakan MO",
+                        text = "Tindakan MO",
                         style = MaterialTheme.typography.labelSmall,
                         color = ClinicalCriticalRed
                     )
@@ -323,11 +515,11 @@ fun DashboardScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
+                            .padding(20.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "\u2705 Tiada amaran klinikal aktif. Semua pesakit mematuhi jadual rawatan.",
+                            text = "\u2705 Tiada amaran klinikal aktif. Semua pesakit patuh jadual rawatan.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = ClinicalSuccessGreen
                         )
@@ -409,33 +601,6 @@ private fun MetricCard(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 color = accentColor
-            )
-        }
-    }
-}
-
-@Composable
-private fun DosagePill(
-    label: String,
-    count: Int,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(vertical = 8.dp, horizontal = 10.dp)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "$count Pesakit",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }

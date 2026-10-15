@@ -10,11 +10,17 @@ import com.example.data.model.AppointmentType
 import com.example.data.model.ClinicalAlert
 import com.example.data.model.DispensationRecord
 import com.example.data.model.DispensationStatus
+import com.example.data.model.DispensingAlertStatus
+import com.example.data.model.DoctorDashboardAnalytics
+import com.example.data.model.DoctorSchedulingConfig
 import com.example.data.model.FollowUpAppointment
 import com.example.data.model.Patient
 import com.example.data.model.PatientStatus
 import com.example.data.model.RegimenType
+import com.example.data.model.StaffDispensingReminder
+import com.example.data.model.SuggestedAppointment
 import com.example.data.model.TreatmentPhase
+import com.example.data.firestore.FirestoreMethadoneRepository
 import com.example.data.repository.MethadoneRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,9 +39,34 @@ data class MethadoneUiState(
     val appointments: List<FollowUpAppointment> = emptyList(),
     val alerts: List<ClinicalAlert> = emptyList(),
     val stats: AdherenceStats = AdherenceStats(0, 0, 0, 0f, 0, 0, 0, 0),
+    val doctorAnalytics: DoctorDashboardAnalytics = DoctorDashboardAnalytics(
+        overallAdherenceRate = 0f,
+        dotAdherenceRate = 0f,
+        dotDbbAdherenceRate = 0f,
+        adherenceTrend = emptyList(),
+        todayTotalVolumeMg = 0.0,
+        todayDotDoseMg = 0.0,
+        todayDbbDoseMg = 0.0,
+        dispensingVolumeTrend = emptyList(),
+        totalAppointments = 0,
+        attendedAppointmentsCount = 0,
+        noShowAppointmentsCount = 0,
+        noShowRate = 0f,
+        upcomingAppointmentsCount = 0,
+        noShowTrend = emptyList(),
+        retentionRate = 0f,
+        cleanUdsRate = 0f,
+        udsTrend = emptyList(),
+        stabilizedDoseRate = 0f,
+        treatmentEffectivenessIndex = 0f
+    ),
+    val doctorConfig: DoctorSchedulingConfig = DoctorSchedulingConfig(),
+    val suggestedAppointments: List<SuggestedAppointment> = emptyList(),
+    val staffDispensingReminders: List<StaffDispensingReminder> = emptyList(),
     val searchQuery: String = "",
     val regimenFilter: RegimenType? = null,
     val selectedTab: Int = 0,
+    val activeAnalyticsTab: Int = 0, // 0: Kepatuhan, 1: Trend Dispensi, 2: Kadar No-Show, 3: Keberkesanan Rawatan
     val selectedPatientForDetail: Patient? = null,
     val isNewPatientDialogOpen: Boolean = false,
     val isDispenseDialogOpen: Boolean = false,
@@ -43,16 +74,31 @@ data class MethadoneUiState(
     val isNewAppointmentDialogOpen: Boolean = false,
     val isUdsDialogOpen: Boolean = false,
     val udsTargetPatient: Patient? = null,
+    val isDoctorConfigDialogOpen: Boolean = false,
     val userNotice: String? = null
 )
 
 class MethadoneViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application, viewModelScope)
     private val repository = MethadoneRepository(database)
+    private val firestoreRepo = FirestoreMethadoneRepository(application.applicationContext)
+    private var currentUserId: String? = null
+
+    fun initForUser(userId: String) {
+        currentUserId = userId
+        viewModelScope.launch {
+            try {
+                firestoreRepo.seedInitialDataIfEmpty(userId)
+            } catch (e: Exception) {
+                // Silently handle if offline; Room database will serve local cache
+            }
+        }
+    }
 
     private val _searchQuery = MutableStateFlow("")
     private val _regimenFilter = MutableStateFlow<RegimenType?>(null)
     private val _selectedTab = MutableStateFlow(0)
+    private val _activeAnalyticsTab = MutableStateFlow(0)
     private val _selectedPatientForDetail = MutableStateFlow<Patient?>(null)
     private val _isNewPatientDialogOpen = MutableStateFlow(false)
     private val _isDispenseDialogOpen = MutableStateFlow(false)
@@ -60,45 +106,67 @@ class MethadoneViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isNewAppointmentDialogOpen = MutableStateFlow(false)
     private val _isUdsDialogOpen = MutableStateFlow(false)
     private val _udsTargetPatient = MutableStateFlow<Patient?>(null)
+    private val _isDoctorConfigDialogOpen = MutableStateFlow(false)
     private val _userNotice = MutableStateFlow<String?>(null)
 
-    val uiState: StateFlow<MethadoneUiState> = combine(
+    private val baseRepoFlow = combine(
         repository.patients,
         repository.dispensations,
         repository.appointments,
         repository.clinicalAlerts,
         repository.adherenceStats
     ) { pList, dList, aList, alertList, statData ->
+        RepoDataGroup1(pList, dList, aList, alertList, statData)
+    }
+
+    private val extendedRepoFlow = combine(
+        repository.doctorAnalytics,
+        repository.doctorConfig,
+        repository.suggestedAppointments,
+        repository.staffDispensingReminders
+    ) { analytics, config, suggestions, reminders ->
+        RepoDataGroup2(analytics, config, suggestions, reminders)
+    }
+
+    private val uiControlsFlow = combine(
+        _searchQuery,
+        _regimenFilter,
+        _selectedTab,
+        _activeAnalyticsTab,
+        _selectedPatientForDetail
+    ) { search, filter, tab, analyticsTab, patientDetail ->
+        UiControlsGroup(search, filter, tab, analyticsTab, patientDetail)
+    }
+
+    val uiState: StateFlow<MethadoneUiState> = combine(
+        baseRepoFlow,
+        extendedRepoFlow,
+        uiControlsFlow,
+        _userNotice
+    ) { g1, g2, ctrl, notice ->
         MethadoneUiState(
-            patients = pList,
-            dispensations = dList,
-            appointments = aList,
-            alerts = alertList,
-            stats = statData
-        )
-    }.combine(
-        combine(
-            _searchQuery,
-            _regimenFilter,
-            _selectedTab,
-            _selectedPatientForDetail,
-            _userNotice
-        ) { search, filter, tab, patientDetail, notice ->
-            Tuple5(search, filter, tab, patientDetail, notice)
-        }
-    ) { baseState, tuple ->
-        baseState.copy(
-            searchQuery = tuple.a,
-            regimenFilter = tuple.b,
-            selectedTab = tuple.c,
-            selectedPatientForDetail = tuple.d,
-            userNotice = tuple.e,
+            patients = g1.patients,
+            dispensations = g1.dispensations,
+            appointments = g1.appointments,
+            alerts = g1.alerts,
+            stats = g1.stats,
+            doctorAnalytics = g2.analytics,
+            doctorConfig = g2.config,
+            suggestedAppointments = g2.suggestions,
+            staffDispensingReminders = g2.reminders,
+            searchQuery = ctrl.searchQuery,
+            regimenFilter = ctrl.regimenFilter,
+            selectedTab = ctrl.selectedTab,
+            activeAnalyticsTab = ctrl.activeAnalyticsTab,
+            selectedPatientForDetail = ctrl.selectedPatientForDetail,
+            userNotice = notice,
             isNewPatientDialogOpen = _isNewPatientDialogOpen.value,
             isDispenseDialogOpen = _isDispenseDialogOpen.value,
             dispenseTargetPatient = _dispenseTargetPatient.value,
             isNewAppointmentDialogOpen = _isNewAppointmentDialogOpen.value,
             isUdsDialogOpen = _isUdsDialogOpen.value,
-            udsTargetPatient = _udsTargetPatient.value
+            udsTargetPatient = _udsTargetPatient.value,
+            isDoctorConfigDialogOpen = _isDoctorConfigDialogOpen.value
         )
     }.stateIn(
         viewModelScope,
@@ -116,6 +184,10 @@ class MethadoneViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setSelectedTab(index: Int) {
         _selectedTab.value = index
+    }
+
+    fun setActiveAnalyticsTab(index: Int) {
+        _activeAnalyticsTab.value = index
     }
 
     fun selectPatientForDetail(patient: Patient?) {
@@ -158,8 +230,45 @@ class MethadoneViewModel(application: Application) : AndroidViewModel(applicatio
         _udsTargetPatient.value = null
     }
 
+    fun openDoctorConfigDialog() {
+        _isDoctorConfigDialogOpen.value = true
+    }
+
+    fun closeDoctorConfigDialog() {
+        _isDoctorConfigDialogOpen.value = false
+    }
+
     fun clearNotice() {
         _userNotice.value = null
+    }
+
+    fun updateDoctorSchedulingConfig(newConfig: DoctorSchedulingConfig) {
+        viewModelScope.launch {
+            repository.updateDoctorConfig(newConfig)
+            _userNotice.value = "Parameter kekerapan susulan doktor berjaya dikemaskini."
+            closeDoctorConfigDialog()
+        }
+    }
+
+    fun applySuggestedAppointment(suggestion: SuggestedAppointment) {
+        viewModelScope.launch {
+            repository.applySuggestedAppointment(suggestion)
+            _userNotice.value = "Janji temu cadangan untuk ${suggestion.patientName} (${suggestion.suggestedDate}) berjaya dijadualkan."
+        }
+    }
+
+    fun applyAllSuggestedAppointments() {
+        viewModelScope.launch {
+            val suggestions = uiState.value.suggestedAppointments
+            repository.applyAllSuggestedAppointments(suggestions)
+            _userNotice.value = "Berjaya menjadualkan semua janji temu cadangan doktor secara automatik."
+        }
+    }
+
+    fun sendStaffReminderNotice(patientName: String, phone: String) {
+        viewModelScope.launch {
+            _userNotice.value = "Peringatan dos dihantar ke sistem SMS/Telefon pesakit $patientName ($phone)."
+        }
     }
 
     fun recordDispensation(
@@ -237,7 +346,7 @@ class MethadoneViewModel(application: Application) : AndroidViewModel(applicatio
                 notes = notes
             )
             repository.addPatient(newPatient)
-            _userNotice.value = "Pesakit ${newPatient.fullName} berjaya didaftarkan. Janji temu susulan automatik dijadualkan."
+            _userNotice.value = "Pesakit ${newPatient.fullName} berjaya didaftarkan. Janji temu susulan automatik dijadualkan mengikut parameter doktor."
             closeNewPatientDialog()
         }
     }
@@ -291,18 +400,33 @@ class MethadoneViewModel(application: Application) : AndroidViewModel(applicatio
             val patientsList = uiState.value.patients.filter { it.status == PatientStatus.AKTIF }
             var scheduledCount = 0
             for (p in patientsList) {
-                repository.autoScheduleForPatient(p)
+                repository.autoScheduleForPatient(p, uiState.value.doctorConfig)
                 scheduledCount++
             }
-            _userNotice.value = "Berjaya menjana janji temu susulan automatik untuk $scheduledCount pesakit aktif."
+            _userNotice.value = "Berjaya menjana janji temu susulan automatik untuk $scheduledCount pesakit aktif mengikut tetapan doktor."
         }
     }
 }
 
-private data class Tuple5<A, B, C, D, E>(
-    val a: A,
-    val b: B,
-    val c: C,
-    val d: D,
-    val e: E
+private data class RepoDataGroup1(
+    val patients: List<Patient>,
+    val dispensations: List<DispensationRecord>,
+    val appointments: List<FollowUpAppointment>,
+    val alerts: List<ClinicalAlert>,
+    val stats: AdherenceStats
+)
+
+private data class RepoDataGroup2(
+    val analytics: DoctorDashboardAnalytics,
+    val config: DoctorSchedulingConfig,
+    val suggestions: List<SuggestedAppointment>,
+    val reminders: List<StaffDispensingReminder>
+)
+
+private data class UiControlsGroup(
+    val searchQuery: String,
+    val regimenFilter: RegimenType?,
+    val selectedTab: Int,
+    val activeAnalyticsTab: Int,
+    val selectedPatientForDetail: Patient?
 )

@@ -18,13 +18,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CrisisAlert
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -55,6 +56,7 @@ import com.example.data.model.DispensationStatus
 import com.example.data.model.Patient
 import com.example.data.model.PatientStatus
 import com.example.data.model.RegimenType
+import com.example.ui.components.StaffDispensingAlertBoard
 import com.example.ui.theme.ClinicalAmberContainer
 import com.example.ui.theme.ClinicalAmberTertiary
 import com.example.ui.theme.ClinicalCriticalContainer
@@ -78,10 +80,12 @@ fun DispensationScreen(
     onQuickDotTaken: (Patient) -> Unit,
     onMarkMissedDose: (Patient) -> Unit,
     onPatientClick: (Patient) -> Unit,
+    onSendStaffReminder: (patientName: String, phone: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var subTab by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
+    var showStaffAlertBoard by remember { mutableStateOf(true) }
 
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val todayStr = sdf.format(Date())
@@ -118,7 +122,7 @@ fun DispensationScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Tab Row: Giliran Hari Ini vs Sejarah Lengkap
+        // Tab Row: Giliran & Amaran Staf vs Sejarah Lengkap
         TabRow(
             selectedTabIndex = subTab,
             containerColor = Color.Transparent,
@@ -131,7 +135,7 @@ fun DispensationScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Medication, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Giliran Hari Ini (${activePatients.size})", fontWeight = FontWeight.Bold)
+                        Text("Giliran & Amaran (${activePatients.size})", fontWeight = FontWeight.Bold)
                     }
                 }
             )
@@ -151,11 +155,39 @@ fun DispensationScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (subTab == 0) {
-            // Today's Queue List
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
+                // Automated Medication Dispensing Alert System Board
+                item {
+                    StaffDispensingAlertBoard(
+                        reminders = state.staffDispensingReminders,
+                        onSendReminder = onSendStaffReminder,
+                        onDispensePatient = { pId ->
+                            state.patients.find { it.id == pId }?.let { onDispenseClick(it) }
+                        }
+                    )
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Senarai Giliran Kaunter Hari Ini",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${filteredPatients.size} Pesakit",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 items(filteredPatients) { patient ->
                     val todayRecord = todayDispensations.find { it.patientId == patient.id }
                     val criticalAlert = state.alerts.find {
